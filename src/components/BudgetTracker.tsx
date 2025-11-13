@@ -18,8 +18,10 @@ export function BudgetTracker() {
   const [budget, setBudget] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [aroundBudgetProducts, setAroundBudgetProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [activeTab, setActiveTab] = useState<'within' | 'around'>('within');
 
   useEffect(() => {
     fetchProducts();
@@ -55,12 +57,23 @@ export function BudgetTracker() {
 
     setLoading(true);
     
+    // Convert INR budget to USD for comparison (divide by 83)
+    const budgetInUSD = budgetAmount / 83;
+    
     // Filter products within budget and sort by price (descending)
     const affordable = products
-      .filter((product) => product.price <= budgetAmount)
+      .filter((product) => product.price <= budgetInUSD)
       .sort((a, b) => b.price - a.price);
     
+    // Filter products around budget (+/- 5%)
+    const lowerBound = budgetInUSD * 0.95;
+    const upperBound = budgetInUSD * 1.05;
+    const aroundBudget = products
+      .filter((product) => product.price >= lowerBound && product.price <= upperBound)
+      .sort((a, b) => Math.abs(a.price - budgetInUSD) - Math.abs(b.price - budgetInUSD));
+    
     setFilteredProducts(affordable);
+    setAroundBudgetProducts(aroundBudget);
     setShowResults(true);
     setLoading(false);
   };
@@ -69,8 +82,11 @@ export function BudgetTracker() {
     const budgetAmount = parseFloat(budget);
     if (isNaN(budgetAmount)) return 0;
     
+    // Convert INR budget to USD for calculation
+    const budgetInUSD = budgetAmount / 83;
+    
     return filteredProducts.reduce((count, product) => {
-      return count + Math.floor(budgetAmount / product.price);
+      return count + Math.floor(budgetInUSD / product.price);
     }, 0);
   };
 
@@ -78,9 +94,12 @@ export function BudgetTracker() {
     const budgetAmount = parseFloat(budget);
     if (isNaN(budgetAmount) || filteredProducts.length === 0) return [];
 
+    // Convert INR budget to USD for calculation
+    const budgetInUSD = budgetAmount / 83;
+
     // Simple greedy algorithm to find optimal product combination
     const combination: Array<{ product: Product; quantity: number }> = [];
-    let remainingBudget = budgetAmount;
+    let remainingBudget = budgetInUSD;
 
     // Sort by value (price descending) for greedy approach
     const sortedProducts = [...filteredProducts].sort((a, b) => b.price - a.price);
@@ -124,7 +143,7 @@ export function BudgetTracker() {
 
         <div className="flex gap-4">
           <div className="flex-1 relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60 text-xl">$</span>
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60 text-xl">₹</span>
             <input
               type="number"
               value={budget}
@@ -168,7 +187,7 @@ export function BudgetTracker() {
                 <DollarSign className="w-5 h-5 text-[#D4AF37]" />
                 <span className="text-white/60">Your Budget</span>
               </div>
-              <div className="text-white">${parseFloat(budget).toFixed(2)}</div>
+              <div className="text-white">₹{parseFloat(budget).toFixed(2)}</div>
             </div>
 
             <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6">
@@ -178,7 +197,7 @@ export function BudgetTracker() {
               </div>
               <div className="text-white">
                 {filteredProducts.length > 0
-                  ? `$${filteredProducts[0].price.toFixed(2)}`
+                  ? `₹${(filteredProducts[0].price * 83).toFixed(2)}`
                   : 'N/A'}
               </div>
             </div>
@@ -209,12 +228,12 @@ export function BudgetTracker() {
                       <div>
                         <div className="text-white">{product.name}</div>
                         <div className="text-white/60 text-sm">
-                          ${product.price} × {quantity}
+                          ₹{(product.price * 83).toFixed(2)} × {quantity}
                         </div>
                       </div>
                     </div>
                     <div className="text-white">
-                      ${(product.price * quantity).toFixed(2)}
+                      ₹{(product.price * quantity * 83).toFixed(2)}
                     </div>
                   </div>
                 ))}
@@ -222,27 +241,27 @@ export function BudgetTracker() {
                   <div className="flex items-center justify-between">
                     <span className="text-white/60">Total</span>
                     <span className="text-white">
-                      $
-                      {getOptimalCombination()
+                      ₹
+                      {(getOptimalCombination()
                         .reduce(
                           (sum, { product, quantity }) =>
                             sum + product.price * quantity,
                           0
-                        )
+                        ) * 83)
                         .toFixed(2)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-white/60">Remaining</span>
                     <span className="text-[#D4AF37]">
-                      $
+                      ₹
                       {(
                         parseFloat(budget) -
-                        getOptimalCombination().reduce(
+                        (getOptimalCombination().reduce(
                           (sum, { product, quantity }) =>
                             sum + product.price * quantity,
                           0
-                        )
+                        ) * 83)
                       ).toFixed(2)}
                     </span>
                   </div>
@@ -251,17 +270,47 @@ export function BudgetTracker() {
             </motion.div>
           )}
 
-          {/* All Products Within Budget */}
+          {/* Tab Navigation */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
+            className="flex gap-4 mb-6"
           >
-            <h3 className="text-white mb-6">
-              All Products Within Budget ({filteredProducts.length})
-            </h3>
+            <button
+              onClick={() => setActiveTab('within')}
+              className={`px-6 py-3 rounded-2xl transition-all ${
+                activeTab === 'within'
+                  ? 'bg-gradient-to-r from-[#FF6B00] to-[#C84C0C] text-white'
+                  : 'bg-white/10 text-white/60 hover:bg-white/20'
+              }`}
+            >
+              Within Budget ({filteredProducts.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('around')}
+              className={`px-6 py-3 rounded-2xl transition-all ${
+                activeTab === 'around'
+                  ? 'bg-gradient-to-r from-[#FF6B00] to-[#C84C0C] text-white'
+                  : 'bg-white/10 text-white/60 hover:bg-white/20'
+              }`}
+            >
+              Around Budget ±5% ({aroundBudgetProducts.length})
+            </button>
+          </motion.div>
 
-            {filteredProducts.length === 0 ? (
+          {/* All Products Within Budget */}
+          {activeTab === 'within' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <h3 className="text-white mb-6">
+                All Products Within Budget ({filteredProducts.length})
+              </h3>
+
+              {filteredProducts.length === 0 ? (
               <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-12 text-center">
                 <DollarSign className="w-16 h-16 text-white/40 mx-auto mb-4" />
                 <p className="text-white/60 mb-2">No products found within your budget</p>
@@ -288,7 +337,7 @@ export function BudgetTracker() {
                       <div className="flex items-start justify-between mb-2">
                         <h4 className="text-white">{product.name}</h4>
                         <span className="bg-[#FF6B00]/20 text-[#FF6B00] px-2 py-1 rounded text-sm">
-                          ${product.price}
+                          ₹{(product.price * 83).toFixed(2)}
                         </span>
                       </div>
                       <p className="text-white/60 text-sm mb-3 line-clamp-2">
@@ -297,7 +346,7 @@ export function BudgetTracker() {
                       <div className="flex items-center justify-between">
                         <span className="text-white/40 text-xs">{product.category}</span>
                         <span className="text-white/60 text-sm">
-                          Max: {Math.floor(parseFloat(budget) / product.price)} units
+                          Max: {Math.floor((parseFloat(budget) / 83) / product.price)} units
                         </span>
                       </div>
                     </div>
@@ -305,7 +354,66 @@ export function BudgetTracker() {
                 ))}
               </div>
             )}
-          </motion.div>
+            </motion.div>
+          )}
+
+          {/* Products Around Budget */}
+          {activeTab === 'around' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <h3 className="text-white mb-6">
+                Products Around Budget ±5% ({aroundBudgetProducts.length})
+              </h3>
+
+              {aroundBudgetProducts.length === 0 ? (
+                <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-12 text-center">
+                  <DollarSign className="w-16 h-16 text-white/40 mx-auto mb-4" />
+                  <p className="text-white/60 mb-2">No products found around your budget range</p>
+                  <p className="text-white/40 text-sm">Try adjusting your budget amount</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {aroundBudgetProducts.map((product, index) => (
+                    <motion.div
+                      key={product.id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl overflow-hidden hover:scale-105 transition-transform"
+                    >
+                      <div className="aspect-square overflow-hidden">
+                        <ImageWithFallback
+                          src={product.image}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="p-6">
+                        <div className="flex items-start justify-between mb-2">
+                          <h4 className="text-white">{product.name}</h4>
+                          <span className="bg-[#D4AF37]/20 text-[#D4AF37] px-2 py-1 rounded text-sm">
+                            ₹{(product.price * 83).toFixed(2)}
+                          </span>
+                        </div>
+                        <p className="text-white/60 text-sm mb-3 line-clamp-2">
+                          {product.description}
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-white/40 text-xs">{product.category}</span>
+                          <span className="text-white/60 text-sm">
+                            {product.price * 83 < parseFloat(budget) ? 'Within Budget' : 'Slightly Over'}
+                          </span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
         </>
       )}
 

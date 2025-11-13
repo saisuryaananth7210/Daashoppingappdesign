@@ -169,7 +169,7 @@ export function FastBuy({ onAddToCart }: FastBuyProps) {
                   <p className="text-white/60 mb-4 line-clamp-2">{product.description}</p>
 
                   <div className="flex items-center justify-between">
-                    <div className="text-white">${product.price.toFixed(2)}</div>
+                    <div className="text-white">₹{(product.price * 83).toFixed(2)}</div>
                     
                     <motion.button
                       onClick={() => handleAddToCart(product)}

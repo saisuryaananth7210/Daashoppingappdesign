@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Users, TrendingDown, Clock, Plus, Minus } from 'lucide-react';
+import { Users, TrendingDown, Clock, Plus, Minus, LogOut } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { getSupabaseClient } from '../utils/supabase/client';
+
+const supabase = getSupabaseClient();
 
 interface Product {
   id: string;
@@ -31,10 +34,28 @@ export function SuperSaver({ accessToken }: SuperSaverProps) {
   const [groups, setGroups] = useState<{ [key: string]: Group }>({});
   const [quantities, setQuantities] = useState<{ [key: string]: number }>({});
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+    fetchCurrentUser();
+  }, [accessToken]);
+
+  const fetchCurrentUser = async () => {
+    if (!accessToken) {
+      setCurrentUserId(null);
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser(accessToken);
+      if (user) {
+        setCurrentUserId(user.id);
+      }
+    } catch (error) {
+      console.error('Error fetching user:', error);
+    }
+  };
 
   const fetchProducts = async () => {
     try {
@@ -118,10 +139,92 @@ export function SuperSaver({ accessToken }: SuperSaverProps) {
       const data = await response.json();
       setGroups(prev => ({ ...prev, [productId]: data.group }));
       alert(`Successfully joined group! Current discount: ${data.group.discountTier}%`);
+      
+      // Refresh the current user info
+      await fetchCurrentUser();
     } catch (error) {
       console.error('Error joining group:', error);
       alert('Failed to join group');
     }
+  };
+
+  const exitGroup = async (productId: string) => {
+    if (!accessToken || !currentUserId) {
+      alert('Please sign in first');
+      return;
+    }
+
+    // Confirm before leaving
+    const confirmed = window.confirm('Are you sure you want to exit this group? You can always join again later.');
+    if (!confirmed) return;
+
+    try {
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-88ccad03/groups/${productId}/leave`;
+      console.log('Attempting to leave group:', url);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      console.log('Leave group response status:', response.status);
+
+      if (!response.ok) {
+        let errorText = '';
+        let errorJson = null;
+        
+        try {
+          errorText = await response.text();
+          errorJson = JSON.parse(errorText);
+        } catch (e) {
+          // errorText is already set
+        }
+        
+        console.error('Failed to exit group:', response.status, errorText);
+        console.error('Error details:', errorJson);
+        
+        if (response.status === 404) {
+          const debugInfo = errorJson?.attemptedPath 
+            ? `\n\nDebug Info:\nAttempted: ${errorJson.attemptedPath}\nMethod: ${errorJson.attemptedMethod}`
+            : '';
+          alert(`⚠️ Unable to exit group - Endpoint not found (404)\n\n` +
+                `The "leave group" endpoint exists in the code but isn't responding.\n\n` +
+                `SOLUTION: You need to redeploy the Supabase Edge Function:\n` +
+                `1. Open your terminal\n` +
+                `2. Run: supabase functions deploy server\n` +
+                `3. Or use: npx supabase functions deploy server\n\n` +
+                `This will update the deployed server with the latest code.${debugInfo}`);
+        } else if (response.status === 401) {
+          alert('Your session has expired. Please sign in again.');
+        } else {
+          alert(`Failed to exit group: ${errorJson?.error || errorText || 'Unknown error'}`);
+        }
+        return;
+      }
+
+      const data = await response.json();
+      console.log('Successfully left group:', data);
+      
+      // Update the groups state with the new group data
+      // This will immediately update the UI to show the Join button
+      setGroups(prev => ({ ...prev, [productId]: data.group }));
+      
+      // Also refresh to ensure we have the latest data
+      await fetchGroup(productId);
+      
+      alert('Successfully exited the group!');
+    } catch (error) {
+      console.error('Error exiting group:', error);
+      alert(`An error occurred while exiting the group: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const isUserInGroup = (group: Group) => {
+    if (!currentUserId || !accessToken) return false;
+    return group.participants.some((p) => p.userId === currentUserId);
   };
 
   const getNextTier = (currentQuantity: number) => {
@@ -226,12 +329,12 @@ export function SuperSaver({ accessToken }: SuperSaverProps) {
                     {/* Pricing */}
                     <div className="flex items-baseline gap-3 mb-6">
                       <div className="text-white">
-                        ${discountedPrice.toFixed(2)}
+                        ₹{(discountedPrice * 83).toFixed(2)}
                       </div>
                       {group.discountTier > 0 && (
                         <>
                           <div className="text-white/40 line-through">
-                            ${product.price.toFixed(2)}
+                            ₹{(product.price * 83).toFixed(2)}
                           </div>
                           <div className="bg-green-500/20 text-green-400 px-3 py-1 rounded-lg">
                             {group.discountTier}% OFF
@@ -270,32 +373,46 @@ export function SuperSaver({ accessToken }: SuperSaverProps) {
                       </div>
                     </div>
 
-                    {/* Quantity Selector and Join Button */}
+                    {/* Quantity Selector and Join/Exit Button */}
                     <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-2 bg-white/10 rounded-2xl p-2">
-                        <button
-                          onClick={() => updateQuantity(product.id, -1)}
-                          className="bg-white/20 hover:bg-white/30 text-white rounded-xl p-2 transition-colors"
-                        >
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        <div className="text-white px-4">{quantity}</div>
-                        <button
-                          onClick={() => updateQuantity(product.id, 1)}
-                          className="bg-white/20 hover:bg-white/30 text-white rounded-xl p-2 transition-colors"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
+                      {!isUserInGroup(group) && (
+                        <div className="flex items-center gap-2 bg-white/10 rounded-2xl p-2">
+                          <button
+                            onClick={() => updateQuantity(product.id, -1)}
+                            className="bg-white/20 hover:bg-white/30 text-white rounded-xl p-2 transition-colors"
+                          >
+                            <Minus className="w-4 h-4" />
+                          </button>
+                          <div className="text-white px-4">{quantity}</div>
+                          <button
+                            onClick={() => updateQuantity(product.id, 1)}
+                            className="bg-white/20 hover:bg-white/30 text-white rounded-xl p-2 transition-colors"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
 
-                      <motion.button
-                        onClick={() => joinGroup(product.id)}
-                        className="flex-1 bg-gradient-to-r from-[#FF6B00] to-[#C84C0C] text-white px-8 py-4 rounded-2xl hover:opacity-90 transition-opacity"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        Join Group
-                      </motion.button>
+                      {isUserInGroup(group) ? (
+                        <motion.button
+                          onClick={() => exitGroup(product.id)}
+                          className="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white px-8 py-4 rounded-2xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                        >
+                          <LogOut className="w-5 h-5" />
+                          Exit Group
+                        </motion.button>
+                      ) : (
+                        <motion.button
+                          onClick={() => joinGroup(product.id)}
+                          className="flex-1 bg-gradient-to-r from-[#FF6B00] to-[#C84C0C] text-white px-8 py-4 rounded-2xl hover:opacity-90 transition-opacity"
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                        >
+                          Join Group
+                        </motion.button>
+                      )}
                     </div>
 
                     {/* ETA */}

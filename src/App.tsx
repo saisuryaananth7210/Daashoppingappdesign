@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, LogOut, LogIn } from 'lucide-react';
+import { Settings, LogOut, LogIn, Palette } from 'lucide-react';
 import { getSupabaseClient } from './utils/supabase/client';
 import { projectId, publicAnonKey } from './utils/supabase/info';
+import { ThemeProvider, useTheme } from './utils/theme-context';
 import { BottomNav } from './components/BottomNav';
 import { Home } from './components/Home';
 import { FastBuy } from './components/FastBuy';
@@ -13,6 +14,7 @@ import { BudgetTracker } from './components/BudgetTracker';
 import { Team } from './components/Team';
 import { AdminPortal } from './components/AdminPortal';
 import { AuthModal } from './components/AuthModal';
+import { NotificationBell } from './components/NotificationBell';
 
 const supabase = getSupabaseClient();
 
@@ -30,7 +32,8 @@ interface CartItem extends Product {
   quantity: number;
 }
 
-export default function App() {
+function AppContent() {
+  const { theme, toggleTheme, colors } = useTheme();
   const [currentPage, setCurrentPage] = useState('home');
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [showAdminPortal, setShowAdminPortal] = useState(false);
@@ -42,6 +45,23 @@ export default function App() {
   useEffect(() => {
     document.title = 'Smart Product Recommendation System - DAA Techniques';
     initializeApp();
+
+    // Listen for auth state changes (handles OAuth callbacks)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) {
+        setAccessToken(session.access_token);
+        const userIsAdmin = session.user?.user_metadata?.isAdmin || false;
+        setIsAdmin(userIsAdmin);
+        setShowAuthModal(false);
+      } else {
+        setAccessToken(null);
+        setIsAdmin(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const initializeApp = async () => {
@@ -153,12 +173,12 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0D0D0D] dark">
+    <div className="min-h-screen dark" style={{ backgroundColor: colors.pageBg }}>
       {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#FF6B00]/15 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#C84C0C]/15 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#D4AF37]/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl animate-pulse" style={{ backgroundColor: `${colors.primary}15` }}></div>
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl animate-pulse" style={{ backgroundColor: `${colors.primaryHover}15`, animationDelay: '1s' }}></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full blur-3xl animate-pulse" style={{ backgroundColor: `${colors.accent}10`, animationDelay: '2s' }}></div>
       </div>
 
       {/* Top Bar */}
@@ -167,6 +187,19 @@ export default function App() {
         animate={{ y: 0, opacity: 1 }}
         className="fixed top-6 right-6 z-40 flex items-center gap-3"
       >
+        <NotificationBell accessToken={accessToken} />
+
+        <motion.button
+          onClick={toggleTheme}
+          className="bg-white/10 backdrop-blur-xl border border-white/20 text-white px-4 py-2 rounded-2xl hover:bg-white/20 transition-colors flex items-center gap-2"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          title={`Switch to ${theme === 'orange' ? 'White' : 'Orange'} theme`}
+        >
+          <Palette className="w-4 h-4" />
+          {theme === 'orange' ? 'Light' : 'Dark'}
+        </motion.button>
+
         {accessToken && (
           <motion.button
             onClick={handleSignOut}
@@ -244,5 +277,13 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }

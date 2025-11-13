@@ -28,10 +28,30 @@ interface AdminPortalProps {
   accessToken: string | null;
 }
 
+interface Order {
+  id: string;
+  userId: string;
+  items: any[];
+  total: number;
+  status: string;
+  customerInfo: any;
+  createdAt: string;
+}
+
+interface GroupInfo {
+  productId: string;
+  productName: string;
+  participants: any[];
+  totalQuantity: number;
+  discountTier: number;
+}
+
 export function AdminPortal({ onClose, accessToken }: AdminPortalProps) {
-  const [activeTab, setActiveTab] = useState<'products' | 'analytics'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'analytics' | 'orders' | 'groups'>('products');
   const [products, setProducts] = useState<Product[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [groups, setGroups] = useState<GroupInfo[]>([]);
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({
@@ -47,6 +67,8 @@ export function AdminPortal({ onClose, accessToken }: AdminPortalProps) {
   useEffect(() => {
     fetchProducts();
     fetchAnalytics();
+    fetchOrders();
+    fetchGroups();
   }, []);
 
   const fetchProducts = async () => {
@@ -88,6 +110,102 @@ export function AdminPortal({ onClose, accessToken }: AdminPortalProps) {
       }
     } catch (error) {
       console.error('Error fetching analytics:', error);
+    }
+  };
+
+  const fetchOrders = async () => {
+    if (!accessToken) return;
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-88ccad03/orders`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setOrders(data.orders || []);
+      }
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+    }
+  };
+
+  const fetchGroups = async () => {
+    if (!accessToken) return;
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-88ccad03/groups`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setGroups(data.groups || []);
+      }
+    } catch (error) {
+      console.error('Error fetching groups:', error);
+    }
+  };
+
+  const handleApproveOrder = async (orderId: string) => {
+    if (!confirm('Approve this order and send products?')) return;
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-88ccad03/orders/${orderId}/approve`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        alert('Order approved! Customer will be notified.');
+        fetchOrders();
+      } else {
+        alert('Failed to approve order');
+      }
+    } catch (error) {
+      console.error('Error approving order:', error);
+      alert('Failed to approve order');
+    }
+  };
+
+  const handleCancelOrder = async (orderId: string) => {
+    if (!confirm('Cancel this order?')) return;
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-88ccad03/orders/${orderId}/cancel`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        alert('Order cancelled. Customer will be notified.');
+        fetchOrders();
+      } else {
+        alert('Failed to cancel order');
+      }
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      alert('Failed to cancel order');
     }
   };
 
@@ -222,10 +340,10 @@ export function AdminPortal({ onClose, accessToken }: AdminPortalProps) {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 p-6 border-b border-white/20">
+        <div className="flex gap-2 p-6 border-b border-white/20 overflow-x-auto">
           <button
             onClick={() => setActiveTab('products')}
-            className={`px-6 py-3 rounded-2xl transition-all ${
+            className={`px-6 py-3 rounded-2xl transition-all whitespace-nowrap ${
               activeTab === 'products'
                 ? 'bg-white/20 text-white'
                 : 'bg-white/5 text-white/60 hover:bg-white/10'
@@ -234,8 +352,28 @@ export function AdminPortal({ onClose, accessToken }: AdminPortalProps) {
             Products
           </button>
           <button
+            onClick={() => setActiveTab('orders')}
+            className={`px-6 py-3 rounded-2xl transition-all whitespace-nowrap ${
+              activeTab === 'orders'
+                ? 'bg-white/20 text-white'
+                : 'bg-white/5 text-white/60 hover:bg-white/10'
+            }`}
+          >
+            Orders {orders.filter(o => o.status === 'pending').length > 0 && `(${orders.filter(o => o.status === 'pending').length})`}
+          </button>
+          <button
+            onClick={() => setActiveTab('groups')}
+            className={`px-6 py-3 rounded-2xl transition-all whitespace-nowrap ${
+              activeTab === 'groups'
+                ? 'bg-white/20 text-white'
+                : 'bg-white/5 text-white/60 hover:bg-white/10'
+            }`}
+          >
+            Groups
+          </button>
+          <button
             onClick={() => setActiveTab('analytics')}
-            className={`px-6 py-3 rounded-2xl transition-all ${
+            className={`px-6 py-3 rounded-2xl transition-all whitespace-nowrap ${
               activeTab === 'analytics'
                 ? 'bg-white/20 text-white'
                 : 'bg-white/5 text-white/60 hover:bg-white/10'
@@ -414,6 +552,162 @@ export function AdminPortal({ onClose, accessToken }: AdminPortalProps) {
                 ))}
               </div>
             </div>
+          ) : activeTab === 'orders' ? (
+            <div className="p-6">
+              <h3 className="text-white mb-6">Product Orders</h3>
+              {orders.length === 0 ? (
+                <div className="text-center py-12">
+                  <Package className="w-16 h-16 text-white/40 mx-auto mb-4" />
+                  <p className="text-white/60">No orders yet</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {orders.map((order) => (
+                    <div
+                      key={order.id}
+                      className="bg-white/5 border border-white/20 rounded-3xl p-6"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <h4 className="text-white mb-1">Order #{order.id.slice(-8)}</h4>
+                          <p className="text-white/60 text-sm">
+                            {new Date(order.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                        <span
+                          className={`px-3 py-1 rounded-lg text-sm ${
+                            order.status === 'pending'
+                              ? 'bg-yellow-500/20 text-yellow-400'
+                              : order.status === 'approved'
+                              ? 'bg-green-500/20 text-green-400'
+                              : 'bg-red-500/20 text-red-400'
+                          }`}
+                        >
+                          {order.status}
+                        </span>
+                      </div>
+
+                      <div className="bg-white/5 rounded-2xl p-4 mb-4">
+                        <h5 className="text-white/60 text-sm mb-3">Customer Info</h5>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <span className="text-white/40">Name:</span>
+                            <div className="text-white">{order.customerInfo.name}</div>
+                          </div>
+                          <div>
+                            <span className="text-white/40">Phone:</span>
+                            <div className="text-white">{order.customerInfo.phone}</div>
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-white/40">Address:</span>
+                            <div className="text-white">
+                              {order.customerInfo.address}, {order.customerInfo.city} - {order.customerInfo.pincode}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white/5 rounded-2xl p-4 mb-4">
+                        <h5 className="text-white/60 text-sm mb-3">Items</h5>
+                        <div className="space-y-2">
+                          {order.items.map((item: any, idx: number) => (
+                            <div key={idx} className="flex items-center justify-between text-sm">
+                              <span className="text-white">
+                                {item.name} × {item.quantity}
+                              </span>
+                              <span className="text-white/60">₹{(item.price * item.quantity * 83).toFixed(2)}</span>
+                            </div>
+                          ))}
+                          <div className="border-t border-white/20 pt-2 mt-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-white">Total</span>
+                              <span className="text-white">₹{order.total.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {order.status === 'pending' && (
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => handleApproveOrder(order.id)}
+                            className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white py-3 rounded-2xl hover:opacity-90 transition-opacity"
+                          >
+                            Approve & Send
+                          </button>
+                          <button
+                            onClick={() => handleCancelOrder(order.id)}
+                            className="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white py-3 rounded-2xl hover:opacity-90 transition-opacity"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'groups' ? (
+            <div className="p-6">
+              <h3 className="text-white mb-6">Group Buying Info</h3>
+              {groups.length === 0 ? (
+                <div className="text-center py-12">
+                  <Users className="w-16 h-16 text-white/40 mx-auto mb-4" />
+                  <p className="text-white/60">No active groups</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {groups.map((group) => (
+                    <div
+                      key={group.productId}
+                      className="bg-white/5 border border-white/20 rounded-3xl p-6"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <h4 className="text-white mb-1">{group.productName}</h4>
+                          <p className="text-white/60 text-sm">
+                            {group.participants.length} participants
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-white">{group.totalQuantity} items</div>
+                          <div className="text-green-400 text-sm">{group.discountTier}% discount</div>
+                        </div>
+                      </div>
+
+                      {group.discountTier >= 20 && (
+                        <div className="bg-green-500/20 border border-green-500/30 rounded-2xl p-3 mb-4">
+                          <p className="text-green-400 text-sm">
+                            ⚠️ Maximum discount tier reached! Group ready for shipment.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="bg-white/5 rounded-2xl p-4">
+                        <h5 className="text-white/60 text-sm mb-3">Participants</h5>
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                          {group.participants.map((participant: any, idx: number) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between text-sm bg-white/5 rounded-xl p-3"
+                            >
+                              <div>
+                                <div className="text-white">
+                                  {participant.email.split('@')[0]}
+                                </div>
+                                <div className="text-white/40 text-xs">{participant.email}</div>
+                              </div>
+                              <div className="text-white/60">Qty: {participant.quantity}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : (
             <div className="p-6">
               {analytics ? (
@@ -447,7 +741,7 @@ export function AdminPortal({ onClose, accessToken }: AdminPortalProps) {
                       <DollarSign className="w-8 h-8 text-white" />
                     </div>
                     <div className="text-white/60 mb-2">Total Revenue</div>
-                    <div className="text-white">${analytics.totalRevenue.toFixed(2)}</div>
+                    <div className="text-white">₹{(analytics.totalRevenue * 83).toFixed(2)}</div>
                   </div>
 
                   <div className="bg-gradient-to-br from-[#D4AF37]/20 to-[#FF6B00]/20 backdrop-blur-xl border border-white/20 rounded-3xl p-6">
